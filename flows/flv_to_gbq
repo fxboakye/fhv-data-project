@@ -1,0 +1,66 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+
+import pandas as pd
+from prefect import flow, task
+from prefect_gcp import GcpCredentials
+
+
+@task()
+def extract(url) -> pd.DataFrame:
+    """Reads data from web to Dataframe"""
+    data=pd.read_csv(url)
+
+    #changed all column headers to lowercase
+    data.columns=[i.lower() for i in data.columns]
+
+    #fixed some dtype issues
+    data['pickup_datetime']=pd.to_datetime(data['pickup_datetime'])
+    data['dropoff_datetime']=pd.to_datetime(data['dropoff_datetime'])
+    data['pulocationid']=pd.to_numeric(data['pulocationid'], downcast='float')
+    data['dolocationid']=pd.to_numeric(data['dolocationid'], downcast='float')
+
+    return data
+
+@task()
+def write_bq(df, dataset:str, table:str, project_id:str) -> None:
+    
+    gcp_credentials_block = GcpCredentials.load("de-zoomcapmp")
+    df.to_gbq(
+        destination_table=f"{dataset}.{table}",
+        project_id=f"{project_id}",
+        credentials=gcp_credentials_block.get_credentials_from_service_account(),
+        chunksize=500_000,
+        if_exists="append",
+    )
+    return
+
+@flow()
+def etl_to_gbq(year:int, month:int, dataset:str,table:str, project_id:str):
+    url=f"https://github.com/DataTalksClub/nyc-tlc-data/releases/download/fhv/fhv_tripdata_{year}-{month:02}.csv.gz"
+    data=extract(url)
+    row_count=len(data)
+    write_bq( data, dataset,table, project_id)
+    return row_count
+
+
+@flow()
+def main_flow(years: list, months: list, dataset:str,table:str, project_id:str):
+    """Parametrizing flow"""
+    #Initializing total row count to Zero
+    total=0
+    for year in years:
+        for month in months:
+            rows= etl_to_gbq(year, month, dataset, table,project_id)
+            total+=rows
+
+    print(f"Total rows ingested={total}")
+    
+if __name__=='__main__':
+    years= [2019]
+    months=[1]
+    dataset= "flv"
+    table= "flv_new"
+    project_id="challlenge-lab-376801"
+    main_flow(years, months, dataset, table,project_id)
