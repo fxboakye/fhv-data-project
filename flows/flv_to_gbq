@@ -59,7 +59,7 @@ def main_flow(years: list, months: list, dataset:str,table:str, project_id:str):
     
 if __name__=='__main__':
     years= [2019]
-    months=[1]
+    months=list(range(1,13))
     dataset= "flv"
     table= "flv_new"
     project_id="challlenge-lab-376801"
